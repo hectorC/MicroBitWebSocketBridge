@@ -34,7 +34,11 @@ mac:
 
 win:
   target:
+    # Installer for students who want a Start Menu entry, plus a single-file
+    # portable build for anyone who would rather not install anything.
     - target: nsis
+      arch: [x64]
+    - target: portable
       arch: [x64]
 
 nsis:
