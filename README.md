@@ -137,9 +137,22 @@ anyway*.
 
 ## Troubleshooting
 
-**Nothing in the device list.** The micro:bit is not advertising. It only
+**Nothing in the device list — but the board appears if you hold A+B and press
+reset.** *No Pairing Required* is not set in the hex. With MakeCode's default
+JustWorks pairing the micro:bit stays invisible to anything it hasn't already
+bonded with, so it looks completely dead to every scanner while running
+perfectly. This is the failure that will strand students. Fix it in Project
+Settings and **re-download** — the setting is compiled in, so changing it
+without re-flashing does nothing.
+
+Note that pairing mode is a diagnostic only: in that mode the board runs a
+built-in pairing app rather than your program, so it has no UART service to
+connect to.
+
+**Nothing in the device list at all.** The micro:bit is not advertising. It only
 advertises when it isn't already connected to something — check it isn't still
-paired to a phone or another laptop. Re-flashing is the reliable reset.
+paired to a phone or another laptop. Re-flashing is the reliable reset. A
+blinking top-left pixel confirms the program is running and waiting.
 
 **"This micro:bit is asking to pair."** It was flashed without the *No Pairing
 Required* setting. Re-flash it.

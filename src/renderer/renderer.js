@@ -8,8 +8,15 @@
  * bugs. Named by direction here instead.
  */
 const UART_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
-const CHAR_TO_MICROBIT = "6e400002-b5a3-f393-e0a9-e50e24dcca9e"; // write
-const CHAR_FROM_MICROBIT = "6e400003-b5a3-f393-e0a9-e50e24dcca9e"; // notify
+
+// The micro:bit profile and the Nordic UART spec assign these two UUIDs to
+// OPPOSITE directions, and third-party docs repeat both versions. Rather than
+// pick a side, attachGatt() asks the characteristics which one notifies and
+// which one accepts writes.
+const UART_CHARS = [
+  "6e400002-b5a3-f393-e0a9-e50e24dcca9e",
+  "6e400003-b5a3-f393-e0a9-e50e24dcca9e"
+];
 
 const MAX_WRITE_BYTES = 20; // UART characteristic payload limit
 const WRITE_INTERVAL_MS = 50; // ~20 writes/sec is about all the link will take
@@ -152,11 +159,40 @@ async function attachGatt() {
   const server = await device.gatt.connect();
   const service = await server.getPrimaryService(UART_SERVICE);
 
-  const notify = await service.getCharacteristic(CHAR_FROM_MICROBIT);
-  notify.addEventListener("characteristicvaluechanged", handleNotification);
-  await notify.startNotifications();
+  const candidates = await Promise.all(
+    UART_CHARS.map((uuid) => service.getCharacteristic(uuid))
+  );
 
-  charWrite = await service.getCharacteristic(CHAR_TO_MICROBIT);
+  // Ground truth for the log: the profile docs disagree with each other, and the
+  // declared property flags have not proven reliable on this stack either.
+  for (const c of candidates) {
+    const flags = ["read", "write", "writeWithoutResponse", "notify", "indicate"].filter(
+      (k) => c.properties[k]
+    );
+    log(`…${c.uuid.slice(4, 8)}: ${flags.length ? flags.join(", ") : "no properties reported"}`);
+  }
+
+  // Don't trust the flags — just try to subscribe to each and keep whichever
+  // one accepts it. The other end of the pair is the write characteristic.
+  let notify = null;
+  for (const c of candidates) {
+    c.addEventListener("characteristicvaluechanged", handleNotification);
+    try {
+      await c.startNotifications();
+      notify = c;
+      break;
+    } catch {
+      c.removeEventListener("characteristicvaluechanged", handleNotification);
+    }
+  }
+
+  if (!notify) throw new Error("Neither UART characteristic would accept notifications");
+
+  charWrite = candidates.find((c) => c !== notify) || null;
+  log(
+    `Data in: …${notify.uuid.slice(4, 8)}` +
+      (charWrite ? `, data out: …${charWrite.uuid.slice(4, 8)}` : ", no write channel")
+  );
 
   clearInterval(writeTimer);
   writeTimer = setInterval(flushWrites, WRITE_INTERVAL_MS);
@@ -200,6 +236,11 @@ async function connect() {
   ui.deviceList.replaceChildren(emptyDeviceRow("Searching…"));
   ui.picker.hidden = false;
 
+  // requestDevice() throws NotFoundError when the user cancels, and
+  // getPrimaryService() throws the same name when the service is absent.
+  // Without tracking the phase, a real GATT failure reads as "cancelled".
+  let inPicker = true;
+
   try {
     device = await navigator.bluetooth.requestDevice({
       filters: [{ namePrefix: "BBC micro:bit" }],
@@ -207,6 +248,7 @@ async function connect() {
       optionalServices: [UART_SERVICE]
     });
 
+    inPicker = false;
     ui.picker.hidden = true;
     ui.deviceName.textContent = device.name;
     ui.deviceName.className = "value";
@@ -223,14 +265,20 @@ async function connect() {
     ui.connectBtn.textContent = "Connect";
     ui.connectBtn.disabled = false;
 
-    if (err.name === "NotFoundError") {
+    if (inPicker && err.name === "NotFoundError") {
       log("Cancelled — no micro:bit chosen.");
+    } else if (err.name === "NotFoundError") {
+      // Connected, but the UART service isn't being offered.
+      const message =
+        "Connected, but this micro:bit is not offering the UART service. " +
+        "Either it is in pairing mode (press reset and let it boot normally — " +
+        "you want the blinking corner pixel), or the program it is running does " +
+        "not call bluetooth.startUartService().";
+      log(message, "err");
+      showBanner(message);
     } else {
-      log(`Connection failed: ${err.message}`, "err");
-      showBanner(
-        `Could not connect: ${err.message}. Check the micro:bit is powered on and ` +
-          "was flashed with the Bluetooth UART program."
-      );
+      log(`Connection failed: ${err.name} — ${err.message}`, "err");
+      showBanner(`Could not connect: ${err.name} — ${err.message}`);
     }
   } finally {
     connecting = false;
@@ -292,32 +340,42 @@ window.bridge.onPairingRequired((message) => {
   log(message, "err");
 });
 
-window.bridge.onServerStatus((status) => {
+function renderServerStatus(status) {
   if (status.listening) {
     ui.serverState.textContent = "listening";
     ui.serverState.className = "tag";
     ui.retryBtn.hidden = true;
     clearBanner();
-    log(`WebSocket server listening on port ${status.port}`, "ok");
   } else {
     ui.serverState.textContent = "not running";
     ui.serverState.className = "tag tag--dim";
     ui.retryBtn.hidden = false;
-    showBanner(status.error);
-    log(status.error, "err");
+    if (status.error) showBanner(status.error);
   }
-});
+}
 
-window.bridge.onClientCount((n) => {
+function renderClientCount(n) {
   ui.clientCount.textContent = `${n} patch${n === 1 ? "" : "es"} connected`;
   ui.clientCount.className = n > 0 ? "tag" : "tag tag--dim";
+}
+
+window.bridge.onServerStatus((status) => {
+  renderServerStatus(status);
+  if (status.listening) log(`WebSocket server listening on port ${status.port}`, "ok");
+  else log(status.error, "err");
 });
+
+window.bridge.onClientCount(renderClientCount);
 
 setInterval(() => {
   ui.rate.textContent = `${framesThisWindow} /s`;
   framesThisWindow = 0;
 }, 1000);
 
+// The server starts before this script subscribes, so its "listening" event is
+// already gone by now. Pull the current state instead of waiting for the next one.
 window.bridge.serverInfo().then((info) => {
   ui.wsUrl.textContent = `ws://localhost:${info.port}`;
+  renderServerStatus(info);
+  renderClientCount(info.clients);
 });

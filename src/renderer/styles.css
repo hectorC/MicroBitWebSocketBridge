@@ -16,6 +16,12 @@
   box-sizing: border-box;
 }
 
+/* Author styles beat the UA stylesheet's [hidden] rule, so any class here that
+   sets `display` would otherwise defeat the hidden attribute. */
+[hidden] {
+  display: none !important;
+}
+
 body {
   margin: 0;
   padding: 18px;

@@ -21,7 +21,21 @@ bluetooth.onBluetoothConnected(function () {
 
 bluetooth.onBluetoothDisconnected(function () {
     connected = false
-    basic.showIcon(IconNames.No)
+    basic.clearScreen()
+})
+
+// Heartbeat, so "running and advertising" looks different from "not running".
+// Blinking top-left pixel = waiting for a connection. Blank = connected, which
+// leaves the display free for messages arriving from cables.
+basic.forever(function () {
+    if (!connected) {
+        led.plot(0, 0)
+        basic.pause(250)
+        led.unplot(0, 0)
+        basic.pause(750)
+    } else {
+        basic.pause(500)
+    }
 })
 
 // cables -> micro:bit. Send a single digit and it appears on the display.
