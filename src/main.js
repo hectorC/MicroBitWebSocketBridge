@@ -8,6 +8,14 @@ const { WebSocketServer } = require("ws");
 // to another port and breaking that guarantee.
 const PORT = 8080;
 
+// This window spends its whole life behind the cables patch, which is precisely
+// when Chromium clamps timers in backgrounded, occluded or minimised renderers.
+// That throttles the BLE write loop to a crawl, so switch it off: being in the
+// background is the normal operating state here, not an idle one.
+app.commandLine.appendSwitch("disable-background-timer-throttling");
+app.commandLine.appendSwitch("disable-renderer-backgrounding");
+app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
+
 let mainWindow = null;
 let wss = null;
 
@@ -100,7 +108,8 @@ function createWindow() {
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
       contextIsolation: true,
-      nodeIntegration: false
+      nodeIntegration: false,
+      backgroundThrottling: false
     }
   });
 
