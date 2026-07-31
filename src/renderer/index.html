@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="Content-Security-Policy" content="default-src 'self'; style-src 'self'" />
+    <title>micro:bit → cables bridge</title>
+    <link rel="stylesheet" href="styles.css" />
+  </head>
+  <body>
+    <header>
+      <h1>micro:bit → cables</h1>
+      <div id="status" class="pill pill--idle">Not connected</div>
+    </header>
+
+    <div id="banner" class="banner" hidden></div>
+
+    <section class="card">
+      <div class="card__row">
+        <div>
+          <div class="label">Your micro:bit</div>
+          <div id="deviceName" class="value value--dim">none selected</div>
+        </div>
+        <button id="connectBtn" class="btn btn--primary">Connect</button>
+      </div>
+      <p class="hint">
+        Match the five letters shown on your micro:bit's screen when it starts up.
+      </p>
+    </section>
+
+    <section class="card">
+      <div class="card__row">
+        <div>
+          <div class="label">Server address for cables</div>
+          <div id="wsUrl" class="value value--mono">ws://localhost:8080</div>
+        </div>
+        <div class="stack stack--right">
+          <div id="serverState" class="tag">starting…</div>
+          <div id="clientCount" class="tag tag--dim">0 patches connected</div>
+        </div>
+      </div>
+      <button id="retryBtn" class="btn btn--ghost" hidden>Retry server</button>
+    </section>
+
+    <section class="card">
+      <div class="card__row">
+        <div class="label">Live data</div>
+        <div id="rate" class="tag tag--dim">0 /s</div>
+      </div>
+      <div id="lastRaw" class="mono-box">waiting for data…</div>
+      <div id="lastValues" class="values"></div>
+    </section>
+
+    <section class="card card--grow">
+      <div class="label">Activity</div>
+      <div id="log" class="log"></div>
+    </section>
+
+    <div id="picker" class="overlay" hidden>
+      <div class="modal">
+        <h2>Choose your micro:bit</h2>
+        <p class="hint">
+          Scanning… devices appear as they are found. Pick the name that matches
+          the letters on your micro:bit.
+        </p>
+        <ul id="deviceList" class="device-list">
+          <li class="device-list__empty">Searching…</li>
+        </ul>
+        <button id="cancelBtn" class="btn btn--ghost">Cancel</button>
+      </div>
+    </div>
+
+    <script src="renderer.js"></script>
+  </body>
+</html>

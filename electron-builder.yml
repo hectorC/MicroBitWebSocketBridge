@@ -1,0 +1,41 @@
+appId: gl.cables.microbit.bridge
+productName: MicroBit Cables Bridge
+copyright: Hector Centeno
+
+directories:
+  output: dist
+  buildResources: build
+
+files:
+  - src/**
+  - package.json
+
+mac:
+  category: public.app-category.education
+  target:
+    - target: dmg
+      arch: [x64, arm64]
+  # Without this key macOS denies Bluetooth silently: no prompt, no error, just
+  # an empty device list.
+  extendInfo:
+    NSBluetoothAlwaysUsageDescription: >-
+      This app connects to your micro:bit over Bluetooth to send its sensor data
+      to cables.gl.
+    NSBluetoothPeripheralUsageDescription: >-
+      This app connects to your micro:bit over Bluetooth to send its sensor data
+      to cables.gl.
+  # Unsigned classroom build. Students approve it once in
+  # System Settings -> Privacy & Security -> Open Anyway.
+  identity: null
+  hardenedRuntime: false
+
+win:
+  target:
+    - target: nsis
+      arch: [x64]
+
+nsis:
+  oneClick: false
+  perMachine: false # per-user install, so no admin rights needed
+  allowToChangeInstallationDirectory: true
+  createDesktopShortcut: true
