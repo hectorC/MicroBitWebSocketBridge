@@ -84,8 +84,8 @@ Feed the `Connection` output of `WebSocket_v2` into an
 { "tx": "5" }
 ```
 
-A bare string works too. The starter program shows a number it receives on the
-LED display.
+A bare string works too. The starter program draws a number it receives as a bar
+graph on the LED display, scaled 0–100. Anything non-numeric scrolls as text.
 
 Writes are deliberately rate-limited to ~20/sec and chunked to 20 bytes, because
 the UART characteristic will not take frame-rate traffic and flooding it drops

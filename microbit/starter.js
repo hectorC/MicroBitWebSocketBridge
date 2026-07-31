@@ -38,13 +38,17 @@ basic.forever(function () {
     }
 })
 
-// cables -> micro:bit. Send a single digit and it appears on the display.
+// cables -> micro:bit. Send a number 0-100 and it draws as a bar graph.
 bluetooth.onUartDataReceived(serial.delimiters(Delimiters.NewLine), function () {
     const message = bluetooth.uartReadUntil(serial.delimiters(Delimiters.NewLine))
     const n = parseFloat(message)
     if (!isNaN(n)) {
-        basic.showNumber(Math.round(n))
+        // plotBarGraph draws immediately. showNumber would block for about a
+        // second per digit, so a patch sending continuously would back up the
+        // event queue and the micro:bit would look frozen.
+        led.plotBarGraph(n, 100)
     } else {
+        // Text still scrolls, and still blocks. Fine for the odd message.
         basic.showString(message)
     }
 })
