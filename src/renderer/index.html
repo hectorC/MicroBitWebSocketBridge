@@ -50,6 +50,22 @@
       <div id="lastValues" class="values"></div>
     </section>
 
+    <section class="card">
+      <div class="card__row">
+        <div>
+          <div class="label">Max writes to micro:bit</div>
+          <p class="hint">
+            Messages from cables are capped at this rate. Higher is not always
+            better — the micro:bit drops what it cannot keep up with.
+          </p>
+        </div>
+        <div class="rate-input">
+          <input id="writeRate" type="number" min="1" max="50" step="1" value="20" />
+          <span class="unit">/s</span>
+        </div>
+      </div>
+    </section>
+
     <section class="card card--grow">
       <div class="label">Activity</div>
       <div id="log" class="log"></div>

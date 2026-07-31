@@ -19,8 +19,15 @@ const UART_CHARS = [
 ];
 
 const MAX_WRITE_BYTES = 20; // UART characteristic payload limit
-const WRITE_INTERVAL_MS = 50; // ~20 writes/sec is about all the link will take
 const WRITE_QUEUE_LIMIT = 20;
+
+// Writes per second, adjustable from the UI while running. ~20 is about all the
+// link will comfortably take; the ceiling is deliberately reachable so the
+// failure mode can be demonstrated rather than only warned about.
+const WRITE_RATE_DEFAULT = 20;
+const WRITE_RATE_MIN = 1;
+const WRITE_RATE_MAX = 50;
+let writeIntervalMs = 1000 / WRITE_RATE_DEFAULT;
 const PARTIAL_FLUSH_MS = 150; // emit an unterminated frame rather than stall
 
 const el = (id) => document.getElementById(id);
@@ -38,6 +45,7 @@ const ui = {
   lastRaw: el("lastRaw"),
   lastValues: el("lastValues"),
   log: el("log"),
+  writeRate: el("writeRate"),
   picker: el("picker"),
   deviceList: el("deviceList"),
   cancelBtn: el("cancelBtn")
@@ -135,6 +143,30 @@ function queueWrite(text) {
   while (writeQueue.length > WRITE_QUEUE_LIMIT) writeQueue.shift();
 }
 
+function applyWriteRate(perSecond, persist = true) {
+  const clamped = Math.min(
+    WRITE_RATE_MAX,
+    Math.max(WRITE_RATE_MIN, Math.round(perSecond) || WRITE_RATE_DEFAULT)
+  );
+  writeIntervalMs = 1000 / clamped;
+  ui.writeRate.value = String(clamped);
+
+  if (persist) {
+    try {
+      localStorage.setItem("writeRate", String(clamped));
+    } catch {
+      // Storage unavailable; the rate still applies for this session.
+    }
+  }
+
+  // Restart the timer so the change lands mid-stream, with no reconnection.
+  if (writeTimer) {
+    clearInterval(writeTimer);
+    writeTimer = setInterval(flushWrites, writeIntervalMs);
+  }
+  return clamped;
+}
+
 async function flushWrites() {
   if (!charWrite || writeQueue.length === 0) return;
 
@@ -195,7 +227,7 @@ async function attachGatt() {
   );
 
   clearInterval(writeTimer);
-  writeTimer = setInterval(flushWrites, WRITE_INTERVAL_MS);
+  writeTimer = setInterval(flushWrites, writeIntervalMs);
 
   reconnectDelay = 1000;
   setStatus(`Connected · ${device.name}`, "ok");
@@ -207,6 +239,7 @@ async function attachGatt() {
 function onDisconnected() {
   charWrite = null;
   clearInterval(writeTimer);
+  writeTimer = null;
 
   if (!shouldReconnect) {
     setStatus("Not connected", "idle");
@@ -288,6 +321,7 @@ async function connect() {
 function disconnect() {
   shouldReconnect = false;
   clearInterval(writeTimer);
+  writeTimer = null;
   if (device && device.gatt.connected) device.gatt.disconnect();
   charWrite = null;
   setStatus("Not connected", "idle");
@@ -315,6 +349,11 @@ ui.cancelBtn.addEventListener("click", () => {
 });
 
 ui.retryBtn.addEventListener("click", () => window.bridge.retryServer());
+
+ui.writeRate.addEventListener("change", () => {
+  const applied = applyWriteRate(Number(ui.writeRate.value));
+  log(`Write cap set to ${applied}/s`);
+});
 
 window.bridge.onDevices((list) => {
   if (list.length === 0) {
@@ -371,6 +410,14 @@ setInterval(() => {
   ui.rate.textContent = `${framesThisWindow} /s`;
   framesThisWindow = 0;
 }, 1000);
+
+let savedRate = WRITE_RATE_DEFAULT;
+try {
+  savedRate = Number(localStorage.getItem("writeRate")) || WRITE_RATE_DEFAULT;
+} catch {
+  // Storage unavailable; fall back to the default.
+}
+applyWriteRate(savedRate, false);
 
 // The server starts before this script subscribes, so its "listening" event is
 // already gone by now. Pull the current state instead of waiting for the next one.

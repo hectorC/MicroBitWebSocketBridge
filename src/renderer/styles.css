@@ -182,6 +182,31 @@ h2 {
   cursor: default;
 }
 
+.rate-input {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+.rate-input input {
+  width: 72px;
+  font: inherit;
+  font-family: ui-monospace, Consolas, monospace;
+  text-align: right;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+.rate-input input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.rate-input .unit {
+  color: var(--dim);
+  font-size: 13px;
+}
+
 .mono-box {
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   font-size: 13px;
