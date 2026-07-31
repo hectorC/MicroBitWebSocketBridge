@@ -6,11 +6,30 @@
 // TWO SETTINGS MUST BE CHANGED FIRST (gear icon -> Project Settings):
 //   1. Add the "Bluetooth" extension (this removes the Radio extension).
 //   2. Turn ON "No Pairing Required: Anyone can connect via Bluetooth".
-// Without #2 you will be stuck in Windows pairing dialogs.
+// Without #2 the micro:bit stays invisible to every scanner while appearing to
+// run perfectly, which is a miserable thing to debug in front of a class.
 
 let connected = false
+let showingName = false
+
+// The five-letter name the bridge lists this board under, derived from its
+// serial number. Scrolled at startup and on button A, so a student can tell
+// their micro:bit from the twenty-nine others in the room.
+function showName() {
+    showingName = true
+    basic.showString(control.deviceName())
+    basic.clearScreen()
+    showingName = false
+}
 
 bluetooth.startUartService()
+
+input.onButtonPressed(Button.A, function () {
+    // Only while disconnected: once connected, A is a data input.
+    if (!connected) {
+        showName()
+    }
+})
 
 bluetooth.onBluetoothConnected(function () {
     connected = true
@@ -28,13 +47,13 @@ bluetooth.onBluetoothDisconnected(function () {
 // Blinking top-left pixel = waiting for a connection. Blank = connected, which
 // leaves the display free for messages arriving from cables.
 basic.forever(function () {
-    if (!connected) {
+    if (connected || showingName) {
+        basic.pause(500)
+    } else {
         led.plot(0, 0)
         basic.pause(250)
         led.unplot(0, 0)
         basic.pause(750)
-    } else {
-        basic.pause(500)
     }
 })
 
@@ -68,3 +87,7 @@ basic.forever(function () {
     }
     basic.pause(50)
 })
+
+// Last, so every handler above is registered before this blocks for a few
+// seconds scrolling the name.
+showName()

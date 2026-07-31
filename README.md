@@ -33,8 +33,13 @@ dialogs, which is where classroom time goes to die.
 address once it is ready.
 
 **3. Connect.** Click **Connect** and pick your micro:bit from the list. Devices
-are named `BBC micro:bit [vatav]` — the five letters match what your board shows
-when it starts up. This matters in a room of 30 identical devices.
+are named `BBC micro:bit [vatav]`.
+
+**Those five letters are how you find yours in a room of 30.** The board scrolls
+its own name across the display when it starts up, and again whenever you press
+**button A** while it isn't connected — so nobody has to remember it or catch it
+first time. The name is fixed per board: it's derived from the serial number and
+can't be changed, so students keeping the same micro:bit all term will learn it.
 
 **4. Open the cables patch.** The app's *patches connected* counter goes to 1
 when cables attaches.
