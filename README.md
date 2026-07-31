@@ -111,13 +111,21 @@ npm run dist
 push a tag and let CI do it:
 
 ```bash
-git tag v1.0.0 && git push --tags
+git tag v0.1.0 && git push --tags
 ```
 
 [`.github/workflows/build.yml`](.github/workflows/build.yml) builds on
-`windows-latest` and `macos-latest` and uploads the `.exe` and `.dmg` as
-artifacts. The Windows installer is per-user, so students don't need admin
-rights.
+`windows-latest` and `macos-latest`, then attaches both installers to a
+**GitHub Release** for that tag. That gives you a permanent download link per
+platform that works without a GitHub account — paste those two URLs into your
+handout. (Build *artifacts* would require students to sign in, find the
+workflow run, and unzip.)
+
+Keep the tag and the `version` in `package.json` in step; electron-builder takes
+the filename from `package.json`, not the tag.
+
+The Windows installer is per-user, so students don't need admin rights. The
+macOS dmg is universal — one download for both Intel and Apple Silicon.
 
 Both builds are **unsigned**. On macOS the first launch is blocked and the
 student has to go to **System Settings → Privacy & Security → Open Anyway**

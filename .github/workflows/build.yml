@@ -5,6 +5,10 @@ on:
     tags: ["v*"]
   workflow_dispatch:
 
+# Needed for the release job to create a release and upload the installers.
+permissions:
+  contents: write
+
 jobs:
   build:
     strategy:
@@ -13,10 +17,12 @@ jobs:
         include:
           - os: windows-latest
             script: dist:win
-            artifact: windows-installer
+            artifact: windows
+            path: dist/*.exe
           - os: macos-latest
             script: dist:mac
-            artifact: macos-dmg
+            artifact: macos
+            path: dist/*.dmg
 
     runs-on: ${{ matrix.os }}
 
@@ -38,7 +44,37 @@ jobs:
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}
-          path: |
-            dist/*.exe
-            dist/*.dmg
+          path: ${{ matrix.path }}
           if-no-files-found: error
+
+  # Collect both platforms into one release so students get a permanent,
+  # login-free download link. Skipped on workflow_dispatch, which has no tag.
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    if: startsWith(github.ref, 'refs/tags/v')
+
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: installers
+          merge-multiple: true
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: installers/*
+          generate_release_notes: true
+          body: |
+            Download the installer for your computer, then set up the micro:bit
+            and cables patch as described in the
+            [README](https://github.com/hectorC/MicroBitWebSocketBridge#readme).
+
+            - **Windows** — the `.exe`. Windows will warn that the publisher is
+              unknown: choose **More info → Run anyway**. No admin rights needed.
+            - **macOS** — the `.dmg` (works on both Intel and Apple Silicon).
+              The first launch is blocked. Open
+              **System Settings → Privacy & Security**, scroll down, and click
+              **Open Anyway**. You only do this once.
+
+            These warnings appear because the app is not code-signed. That is
+            expected here.

@@ -12,9 +12,12 @@ files:
 
 mac:
   category: public.app-category.education
+  # One universal dmg rather than separate Intel/Apple Silicon downloads. Larger,
+  # but removes "which Mac do you have?" from the setup instructions. Viable
+  # only because there are no native modules to build per-architecture.
   target:
     - target: dmg
-      arch: [x64, arm64]
+      arch: [universal]
   # Without this key macOS denies Bluetooth silently: no prompt, no error, just
   # an empty device list.
   extendInfo:

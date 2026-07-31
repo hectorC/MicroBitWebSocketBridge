@@ -1,6 +1,6 @@
 {
   "name": "microbit-cables-bridge",
-  "version": "1.0.0",
+  "version": "0.1.0",
   "description": "Bridges a micro:bit over Bluetooth LE to a local WebSocket server for cables.gl standalone",
   "main": "src/main.js",
   "author": "Hector Centeno",
