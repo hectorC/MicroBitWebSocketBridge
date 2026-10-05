@@ -36,6 +36,8 @@ jobs:
 
       - run: npm ci
 
+      - run: npm test
+
       - run: npm run ${{ matrix.script }}
         env:
           # Nothing to sign with in a classroom build; skip the attempt.

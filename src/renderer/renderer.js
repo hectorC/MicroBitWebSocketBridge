@@ -51,6 +51,23 @@ const ui = {
   cancelBtn: el("cancelBtn")
 };
 
+Object.assign(ui, {
+  outputMode: el("outputMode"),
+  outputError: el("outputError"),
+  websocketPanel: el("websocketPanel"),
+  oscPanel: el("oscPanel"),
+  oscForm: el("oscForm"),
+  oscHost: el("oscHost"),
+  oscPort: el("oscPort"),
+  applyOscBtn: el("applyOscBtn"),
+  oscDestination: el("oscDestination"),
+  oscState: el("oscState"),
+  oscCount: el("oscCount"),
+  writeCard: el("writeCard")
+});
+let outputSettings = null;
+let lastOscError = null;
+
 let device = null;
 let charWrite = null;
 let shouldReconnect = false;
@@ -384,12 +401,12 @@ function renderServerStatus(status) {
     ui.serverState.textContent = "listening";
     ui.serverState.className = "tag";
     ui.retryBtn.hidden = true;
-    clearBanner();
+    if (outputSettings?.mode === "websocket") showOutputError(null);
   } else {
     ui.serverState.textContent = "not running";
     ui.serverState.className = "tag tag--dim";
     ui.retryBtn.hidden = false;
-    if (status.error) showBanner(status.error);
+    if (outputSettings?.mode === "websocket") showOutputError(status.error);
   }
 }
 
@@ -401,7 +418,7 @@ function renderClientCount(n) {
 window.bridge.onServerStatus((status) => {
   renderServerStatus(status);
   if (status.listening) log(`WebSocket server listening on port ${status.port}`, "ok");
-  else log(status.error, "err");
+  else if (status.error) log(status.error, "err");
 });
 
 window.bridge.onClientCount(renderClientCount);
@@ -419,10 +436,82 @@ try {
 }
 applyWriteRate(savedRate, false);
 
-// The server starts before this script subscribes, so its "listening" event is
-// already gone by now. Pull the current state instead of waiting for the next one.
-window.bridge.serverInfo().then((info) => {
-  ui.wsUrl.textContent = `ws://localhost:${info.port}`;
-  renderServerStatus(info);
+function showOutputError(message) {
+  ui.outputError.textContent = message || "";
+  ui.outputError.hidden = !message;
+}
+
+function renderOscStatus(status) {
+  ui.oscState.textContent = status.error ? "send failed" : status.sent ? "sending" : "ready to send";
+  ui.oscState.className = status.error ? "tag tag--dim" : "tag";
+  ui.oscCount.textContent = `${status.sent} packet${status.sent === 1 ? "" : "s"} sent`;
+  if (outputSettings?.mode === "osc" && status.error !== lastOscError) {
+    showOutputError(status.error);
+    if (status.error) log(`OSC send failed: ${status.error}`, "err");
+  }
+  lastOscError = status.error;
+}
+
+function renderOutput(info) {
+  outputSettings = info.settings;
+  const osc = outputSettings.mode === "osc";
+  ui.outputMode.value = outputSettings.mode;
+  ui.websocketPanel.hidden = osc;
+  ui.oscPanel.hidden = !osc;
+  ui.writeCard.hidden = osc;
+  ui.oscHost.value = outputSettings.host;
+  ui.oscPort.value = String(outputSettings.port);
+  ui.oscDestination.textContent = `${outputSettings.host}:${outputSettings.port}`;
+  ui.wsUrl.textContent = `ws://localhost:${info.ws.port}`;
+  showOutputError(null);
+  lastOscError = null;
+  renderServerStatus(info.ws);
   renderClientCount(info.clients);
+  renderOscStatus(info.osc);
+}
+
+async function configureOutput(settings) {
+  if (ui.outputMode.disabled) return;
+  ui.outputMode.disabled = true;
+  ui.applyOscBtn.disabled = true;
+  try {
+    const result = await window.bridge.configureOutput(settings);
+    if (!result.ok) throw new Error(result.error);
+    // Discard queued return messages when selecting one-way OSC output.
+    if (settings.mode === "osc") writeQueue.length = 0;
+    renderOutput(result);
+    log(settings.mode === "osc"
+      ? `OSC output → ${result.settings.host}:${result.settings.port}`
+      : "WebSocket output selected", "ok");
+  } catch (err) {
+    ui.outputMode.value = outputSettings.mode;
+    showOutputError(err.message);
+    log(`Output settings: ${err.message}`, "err");
+  } finally {
+    ui.outputMode.disabled = false;
+    ui.applyOscBtn.disabled = false;
+  }
+}
+
+ui.outputMode.addEventListener("change", () => {
+  configureOutput({ ...outputSettings, mode: ui.outputMode.value });
+});
+
+ui.oscForm.addEventListener("submit", (event) => {
+  event.preventDefault();
+  configureOutput({ mode: "osc", host: ui.oscHost.value, port: Number(ui.oscPort.value) });
+});
+
+window.bridge.onOscStatus(renderOscStatus);
+
+// Pull startup state: the server can become ready before the UI subscribes.
+window.bridge.outputInfo().then((info) => {
+  renderOutput(info);
+  ui.outputMode.disabled = false;
+  if (info.warning) {
+    showOutputError(info.warning);
+    log(info.warning, "err");
+  }
+}).catch((err) => {
+  showOutputError(`Could not load output settings: ${err.message}`);
 });

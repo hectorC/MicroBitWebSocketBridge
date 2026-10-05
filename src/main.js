@@ -1,12 +1,6 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("node:path");
-const { WebSocketServer } = require("ws");
-
-// Fixed port on purpose. Every student's bridge listens here, so the same
-// cables patch works on every laptop with no per-machine editing. If the port
-// is taken we surface an error and let them retry rather than silently moving
-// to another port and breaking that guarantee.
-const PORT = 8080;
+const fs = require("node:fs");
 
 // This window spends its whole life behind the cables patch, which is precisely
 // when Chromium clamps timers in backgrounded, occluded or minimised renderers.
@@ -17,7 +11,10 @@ app.commandLine.appendSwitch("disable-renderer-backgrounding");
 app.commandLine.appendSwitch("disable-backgrounding-occluded-windows");
 
 let mainWindow = null;
-let wss = null;
+let output = null;
+let validateOutput = null;
+let settingsPath = null;
+let settingsWarning = null;
 
 /**
  * Electron hands us a fresh callback every time it discovers another device
@@ -32,78 +29,13 @@ function send(channel, payload) {
   }
 }
 
-function broadcastClientCount() {
-  send("ws:clients", wss ? wss.clients.size : 0);
-}
-
-function startServer() {
-  if (wss) return;
-
-  wss = new WebSocketServer({ port: PORT, host: "127.0.0.1" });
-
-  wss.on("listening", () => {
-    send("ws:status", { listening: true, port: PORT, error: null });
-    broadcastClientCount();
-  });
-
-  wss.on("connection", (socket) => {
-    broadcastClientCount();
-
-    // cables -> micro:bit. Accept either a bare string or an object with a
-    // `tx` field, since WebSocketSend serialises objects.
-    socket.on("message", (data) => {
-      const text = data.toString();
-      let out = text;
-      try {
-        const parsed = JSON.parse(text);
-        if (parsed && typeof parsed === "object") {
-          out = parsed.tx ?? parsed.text ?? parsed.value ?? text;
-        }
-      } catch {
-        // Not JSON; treat the whole payload as the string to send.
-      }
-      if (out !== null && out !== undefined && String(out).length > 0) {
-        send("ble:tx", String(out));
-      }
-    });
-
-    socket.on("close", broadcastClientCount);
-    socket.on("error", broadcastClientCount);
-  });
-
-  wss.on("error", (err) => {
-    const inUse = err && err.code === "EADDRINUSE";
-    send("ws:status", {
-      listening: false,
-      port: PORT,
-      error: inUse
-        ? `Port ${PORT} is already in use. Close any other copy of this app (or whatever else is using ${PORT}) and press Retry.`
-        : String(err && err.message ? err.message : err)
-    });
-    try {
-      wss.close();
-    } catch {
-      /* already closing */
-    }
-    wss = null;
-  });
-}
-
-function broadcast(payload) {
-  if (!wss) return;
-  const text = JSON.stringify(payload);
-  for (const client of wss.clients) {
-    if (client.readyState === 1) client.send(text);
-  }
-}
-
 function createWindow() {
   mainWindow = new BrowserWindow({
     width: 620,
-    height: 720,
+    height: 820,
     minWidth: 480,
     minHeight: 560,
-    title: "micro:bit → cables bridge",
+    title: "micro:bit → WebSocket / OSC",
     backgroundColor: "#14161a",
     webPreferences: {
       preload: path.join(__dirname, "preload.js"),
@@ -159,14 +91,31 @@ if (!app.requestSingleInstanceLock()) {
     }
   });
 
-  app.whenReady().then(() => {
+  app.whenReady().then(async () => {
+    const transport = await import("./output.mjs");
+    validateOutput = transport.validateOutput;
+    settingsPath = path.join(app.getPath("userData"), "output.json");
+    let settings = transport.DEFAULT_OUTPUT;
+    try {
+      settings = validateOutput(JSON.parse(fs.readFileSync(settingsPath, "utf8")));
+    } catch (err) {
+      if (err.code !== "ENOENT") {
+        settingsWarning = "Saved output settings could not be loaded. Using WebSocket defaults.";
+      }
+    }
+    output = new transport.OutputBridge(settings);
+    output.on("ws-status", (status) => send("ws:status", status));
+    output.on("clients", (count) => send("ws:clients", count));
+    output.on("osc-status", (status) => send("osc:status", status));
+    output.on("tx", (text) => send("ble:tx", text));
     createWindow();
-    startServer();
+    output.start();
   });
 
   // This is a single-purpose tool: closing the window means "stop bridging",
   // including on macOS.
   app.on("window-all-closed", () => app.quit());
+  app.on("before-quit", () => output?.stop());
 }
 
 ipcMain.on("ble:select-device", (_event, deviceId) => {
@@ -183,12 +132,24 @@ ipcMain.on("ble:cancel-scan", () => {
   }
 });
 
-ipcMain.on("bridge:data", (_event, payload) => broadcast(payload));
+ipcMain.on("bridge:data", (_event, payload) => output?.sendFrame(payload));
 
-ipcMain.on("ws:retry", () => startServer());
+ipcMain.on("ws:retry", () => output?.startServer());
 
-ipcMain.handle("ws:info", () => ({
-  listening: Boolean(wss),
-  port: PORT,
-  clients: wss ? wss.clients.size : 0
-}));
+ipcMain.handle("output:info", () => ({ ...output.info(), warning: settingsWarning }));
+
+ipcMain.handle("output:configure", async (_event, settings) => {
+  try {
+    const next = validateOutput(settings);
+    // Save before changing the transport so a failed save leaves the active
+    // output alone. userData resolves correctly on Windows and macOS.
+    fs.mkdirSync(path.dirname(settingsPath), { recursive: true });
+    fs.writeFileSync(`${settingsPath}.tmp`, JSON.stringify(next, null, 2));
+    fs.renameSync(`${settingsPath}.tmp`, settingsPath);
+    const info = await output.configure(next);
+    settingsWarning = null;
+    return { ok: true, ...info };
+  } catch (err) {
+    return { ok: false, error: err.message };
+  }
+});

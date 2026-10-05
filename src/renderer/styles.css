@@ -207,6 +207,44 @@ h2 {
   font-size: 13px;
 }
 
+select,
+.field input {
+  min-width: 0;
+  font: inherit;
+  padding: 7px 9px;
+  border-radius: 7px;
+  background: var(--card-2);
+  border: 1px solid var(--line);
+  color: var(--text);
+}
+select { max-width: 100%; }
+select:focus-visible,
+.field input:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+.osc-form {
+  display: flex;
+  align-items: flex-end;
+  gap: 10px;
+}
+.field {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+.field--port { flex: 0 0 95px; }
+.field input { width: 100%; }
+#oscDestination { overflow-wrap: anywhere; }
+@media (max-width: 510px) {
+  header,
+  .osc-form { flex-wrap: wrap; }
+  #outputMode { width: 100%; }
+  .card__row:has(#outputMode) { flex-wrap: wrap; }
+}
+
 .mono-box {
   font-family: ui-monospace, "Cascadia Code", Consolas, monospace;
   font-size: 13px;

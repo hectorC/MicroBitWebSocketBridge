@@ -1,17 +1,20 @@
 # micro:bit → cables bridge
 
-Connects a micro:bit to a cables.gl **standalone** patch over Bluetooth LE.
+Connects a micro:bit over Bluetooth LE and sends its data to cables.gl
+**standalone**, TouchDesigner, or another WebSocket/OSC application.
 
-The app talks to the micro:bit over BLE and exposes the data as a WebSocket
-server on `ws://localhost:8080`. Because the port is the same on every machine,
+Choose **WebSocket** (the default) or **OSC** in the app's Output selector.
+WebSocket exposes the data on `ws://localhost:8080`. Because the port is the same on every machine,
 **one patch file works on every student's laptop with no editing.**
 
-Data flows both ways: micro:bit sensors into the patch, and messages from the
-patch back to the micro:bit.
+In WebSocket mode, data flows both ways: micro:bit sensors into the patch, and
+messages from the patch back to the micro:bit. OSC mode sends numeric sensor
+data over UDP to an editable destination, initially `127.0.0.1:9000`.
 
 ```
 micro:bit  ──BLE UART──▶  this app  ──ws://localhost:8080──▶  cables standalone
            ◀───────────────────────────────────────────────
+                                  └─OSC / UDP───────────▶  TouchDesigner / others
 ```
 
 ---
@@ -29,8 +32,10 @@ new project, switch the editor to JavaScript, paste in
 That second setting is not optional. Skip it and you land in Windows pairing
 dialogs, which is where classroom time goes to die.
 
-**2. Run the bridge.** Open the app. It shows `listening` next to the server
-address once it is ready.
+**2. Run the bridge.** Choose **WebSocket** for cables or **OSC** for TouchDesigner.
+WebSocket shows `listening` when its server is ready. OSC shows `ready to send`
+until the board sends numeric data. Your output selection and OSC destination
+are saved for the next launch.
 
 **3. Connect.** Click **Connect** and pick your micro:bit from the list. Devices
 are named `BBC micro:bit [vatav]`.
@@ -41,14 +46,16 @@ its own name across the display when it starts up, and again whenever you press
 first time. The name is fixed per board: it's derived from the serial number and
 can't be changed, so students keeping the same micro:bit all term will learn it.
 
-**4. Open the cables patch.** The app's *patches connected* counter goes to 1
-when cables attaches.
+**4. Open the receiving application.** In WebSocket mode, the app's *patches connected*
+counter goes to 1 when cables attaches. For OSC, follow the TouchDesigner steps below.
 
 The micro:bit shows a tick when connected and a cross when it drops.
 
 ---
 
 ## Wiring it up in cables
+
+Select **WebSocket** output in the bridge.
 
 Add an **`Ops.Net.WebSocket.WebSocket_v2`** op and set its URL to:
 
@@ -99,12 +106,70 @@ discarded rather than backing up.
 
 ---
 
+## OSC output / TouchDesigner
+
+The same micro:bit starter program works with either output. No re-flashing is
+needed when switching between WebSocket and OSC.
+
+1. In the bridge, choose **OSC** in the Output selector.
+2. For TouchDesigner on the same computer, keep the destination at `127.0.0.1`
+   and the UDP port at `9000`. Click **Apply** after editing the destination.
+3. In TouchDesigner, add an **OSC In CHOP**, choose **Messaging (UDP)**, set
+   **Network Port** to `9000` (or the port you chose), and turn **Active** on.
+4. Connect the micro:bit in the bridge. Numeric readings appear as CHOP channels.
+   Use a Select CHOP to select readings and a Math CHOP to scale their ranges.
+
+Each incoming frame is sent as one immediate OSC bundle containing one message
+per numeric array element. Indices start at zero:
+
+| OSC address | Starter program reading |
+| --- | --- |
+| `/microbit/value/0` | Acceleration X (mg) |
+| `/microbit/value/1` | Acceleration Y (mg) |
+| `/microbit/value/2` | Acceleration Z (mg) |
+| `/microbit/value/3` | Button A (0 or 1) |
+| `/microbit/value/4` | Button B (0 or 1) |
+| `/microbit/value/5` | Light level (0–255) |
+
+Channel names in TouchDesigner depend on its **Strip Prefix Segments** setting.
+The addresses stay generic so students can send any number of comma-separated
+readings. Numbers are sent as OSC int32 when possible, otherwise float32.
+Non-numeric fields are skipped without shifting later indices; their receiver
+channels may retain the last valid value. Numbers outside float32 range are
+also skipped. Text-only frames produce no OSC packet; use WebSocket for raw text.
+
+OSC is one-way in this version. To send messages back to the board, choose
+WebSocket. Switching outputs closes the old transport; only the selected
+output receives frames. OSC does not need port 8080 to be available.
+
+**UDP has no connection handshake.** The app's packet counter confirms local
+sends, not delivery to TouchDesigner. If you see packets sent but no channels,
+check the receiver's UDP port, Active setting, and OSC address scope (`*`).
+For a receiver on another computer, enter that computer's IP address and check
+its firewall allows incoming UDP on the chosen port.
+
+The OSC library is pure JavaScript and UDP uses Node's built-in networking.
+Both Windows and macOS builds use the same implementation.
+
+See [Derivative's OSC In CHOP documentation](https://derivative.ca/UserGuide/OSC_In_CHOP).
+
+---
+
 ## Developing
 
 ```bash
 npm install
 npm start
 ```
+
+Run `npm test` to check packet encoding, actual UDP/WebSocket delivery, output
+switching, input validation and network-error recovery. GitHub Actions runs
+these tests on both platforms before packaging.
+
+Run `npm run test:electron` for a hidden-window check of the real UI, preload,
+IPC, UDP delivery and saved settings. After building Windows, use
+`npm run test:electron -- --packaged --restored` to check the packaged source
+with an existing OSC configuration. Test screenshots are written to `dist/smoke`.
 
 ## Building installers
 
@@ -116,7 +181,7 @@ npm run dist
 push a tag and let CI do it:
 
 ```bash
-git tag v0.1.0 && git push --tags
+git tag v0.3.0 && git push origin v0.3.0
 ```
 
 [`.github/workflows/build.yml`](.github/workflows/build.yml) builds on

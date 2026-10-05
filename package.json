@@ -1,18 +1,21 @@
 {
   "name": "microbit-cables-bridge",
-  "version": "0.2.0",
-  "description": "Bridges a micro:bit over Bluetooth LE to a local WebSocket server for cables.gl standalone",
+  "version": "0.3.0",
+  "description": "Bridges a micro:bit over Bluetooth LE to WebSocket or OSC for cables.gl, TouchDesigner and other creative tools",
   "main": "src/main.js",
   "author": "Hector Centeno",
   "license": "MIT",
   "private": true,
   "scripts": {
     "start": "electron .",
+    "test": "node --test tests/output.test.mjs",
+    "test:electron": "electron tests/electron-smoke.cjs",
     "dist": "electron-builder --publish never",
     "dist:win": "electron-builder --win --publish never",
     "dist:mac": "electron-builder --mac --publish never"
   },
   "dependencies": {
+    "osc-min": "^2.1.2",
     "ws": "^8.21.1"
   },
   "devDependencies": {
