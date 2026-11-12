@@ -23,9 +23,9 @@ mac:
       to: MacOS
       filter: [microbit-ble]
   extendInfo:
-    # Test build: keep its privacy grant separate from installed release copies.
+    # Keep the working Core Bluetooth identity from beta.3. This also separates
+    # its macOS privacy entry from builds that used Electron for Bluetooth.
     CFBundleIdentifier: gl.cables.microbit.bridge.bluetooth-test
-    CFBundleDisplayName: MicroBit Cables Bridge Bluetooth Test
     NSBluetoothAlwaysUsageDescription: >-
       This app connects to your micro:bit over Bluetooth to send its sensor data
       to cables.gl.
@@ -33,7 +33,7 @@ mac:
       This app connects to your micro:bit over Bluetooth to send its sensor data
       to cables.gl.
   # Ad hoc signing covers the whole bundle and its embedded executable.
-  # This test build is not notarized.
+  # The macOS build is not notarized.
   identity: "-"
   hardenedRuntime: false
 
