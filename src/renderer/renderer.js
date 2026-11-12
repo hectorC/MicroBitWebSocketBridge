@@ -8,6 +8,8 @@
  * bugs. Named by direction here instead.
  */
 const UART_SERVICE = "6e400001-b5a3-f393-e0a9-e50e24dcca9e";
+const MICROBIT_NAME_PREFIX = "BBC micro:bit";
+const SCAN_FEEDBACK_MS = 15000;
 
 // The micro:bit profile and the Nordic UART spec assign these two UUIDs to
 // OPPOSITE directions, and third-party docs repeat both versions. Rather than
@@ -47,6 +49,8 @@ const ui = {
   log: el("log"),
   writeRate: el("writeRate"),
   picker: el("picker"),
+  scanAll: el("scanAll"),
+  scanHint: el("scanHint"),
   deviceList: el("deviceList"),
   cancelBtn: el("cancelBtn")
 };
@@ -73,6 +77,7 @@ let charWrite = null;
 let shouldReconnect = false;
 let reconnectDelay = 1000;
 let connecting = false;
+let scan = null;
 
 let rxBuffer = "";
 let partialTimer = null;
@@ -247,10 +252,11 @@ async function attachGatt() {
   writeTimer = setInterval(flushWrites, writeIntervalMs);
 
   reconnectDelay = 1000;
-  setStatus(`Connected · ${device.name}`, "ok");
+  const name = device.name || "Unnamed Bluetooth device";
+  setStatus(`Connected · ${name}`, "ok");
   ui.connectBtn.textContent = "Disconnect";
   ui.connectBtn.disabled = false;
-  log(`Connected to ${device.name}`, "ok");
+  log(`Connected to ${name}`, "ok");
 }
 
 function onDisconnected() {
@@ -283,24 +289,44 @@ async function connect() {
   clearBanner();
   setStatus("Scanning…", "busy");
   ui.connectBtn.disabled = true;
+  ui.scanAll.disabled = true;
+  ui.cancelBtn.disabled = false;
   ui.deviceList.replaceChildren(emptyDeviceRow("Searching…"));
+  ui.scanHint.textContent = "Pick the name that matches the letters on your micro:bit.";
   ui.picker.hidden = false;
 
-  // requestDevice() throws NotFoundError when the user cancels, and
-  // getPrimaryService() throws the same name when the service is absent.
-  // Without tracking the phase, a real GATT failure reads as "cancelled".
+  const attempt = { all: ui.scanAll.checked, updates: 0, total: 0, matching: 0, cancelled: false, selected: false };
+  scan = attempt;
+  log(attempt.all ? "Bluetooth scan: all nearby devices." : "Bluetooth scan: BBC micro:bit names only.");
+  const feedbackTimer = setTimeout(() => {
+    if (attempt.cancelled || attempt.selected || attempt.matching > 0) return;
+    const message = !attempt.updates ? "Electron has not sent any device list updates."
+      : attempt.total ? "Other Bluetooth devices found, but no BBC micro:bit name yet."
+      : "Electron reported an empty Bluetooth device list.";
+    log(`After 15 seconds: ${message}`, "err");
+    ui.scanHint.textContent = attempt.all ? message
+      : `${message} Cancel and turn on “Show all nearby Bluetooth devices” to compare.`;
+    if (attempt.total === 0) ui.deviceList.replaceChildren(emptyDeviceRow("No devices found yet."));
+  }, SCAN_FEEDBACK_MS);
+
   let inPicker = true;
+  function endPicker() {
+    clearTimeout(feedbackTimer);
+    scan = null;
+    window.bridge.endScan();
+    ui.picker.hidden = true;
+  }
 
   try {
     device = await navigator.bluetooth.requestDevice({
-      filters: [{ namePrefix: "BBC micro:bit" }],
+      ...(attempt.all ? { acceptAllDevices: true } : { filters: [{ namePrefix: MICROBIT_NAME_PREFIX }] }),
       // Without this the service stays invisible even after connecting.
       optionalServices: [UART_SERVICE]
     });
 
     inPicker = false;
-    ui.picker.hidden = true;
-    ui.deviceName.textContent = device.name;
+    endPicker();
+    ui.deviceName.textContent = device.name || "Unnamed Bluetooth device";
     ui.deviceName.className = "value";
     setStatus("Connecting…", "busy");
 
@@ -308,15 +334,24 @@ async function connect() {
     shouldReconnect = true;
     await attachGatt();
   } catch (err) {
-    ui.picker.hidden = true;
+    if (inPicker) endPicker();
     shouldReconnect = false;
+    if (device) {
+      device.removeEventListener("gattserverdisconnected", onDisconnected);
+      if (device.gatt.connected) device.gatt.disconnect();
+    }
     device = null;
     setStatus("Not connected", "idle");
     ui.connectBtn.textContent = "Connect";
     ui.connectBtn.disabled = false;
+    ui.scanAll.disabled = false;
 
-    if (inPicker && err.name === "NotFoundError") {
+    if (inPicker && attempt.cancelled) {
       log("Cancelled — no micro:bit chosen.");
+    } else if (inPicker) {
+      const message = `Bluetooth scan ended: ${err.name} — ${err.message}`;
+      log(message, "err");
+      showBanner(message);
     } else if (err.name === "NotFoundError") {
       // Connected, but the UART service isn't being offered.
       const message =
@@ -343,6 +378,7 @@ function disconnect() {
   charWrite = null;
   setStatus("Not connected", "idle");
   ui.connectBtn.textContent = "Connect";
+  ui.scanAll.disabled = false;
   log("Disconnected.");
 }
 
@@ -361,8 +397,12 @@ ui.connectBtn.addEventListener("click", () => {
 });
 
 ui.cancelBtn.addEventListener("click", () => {
+  if (!scan || scan.selected) return;
+  scan.cancelled = true;
+  ui.cancelBtn.disabled = true;
+  ui.scanHint.textContent = "Cancelling Bluetooth scan…";
+  ui.deviceList.replaceChildren();
   window.bridge.cancelScan();
-  ui.picker.hidden = true;
 });
 
 ui.retryBtn.addEventListener("click", () => window.bridge.retryServer());
@@ -373,16 +413,30 @@ ui.writeRate.addEventListener("change", () => {
 });
 
 window.bridge.onDevices((list) => {
+  if (!scan || scan.cancelled || scan.selected) return;
+  const matching = list.filter((entry) => entry.deviceName.startsWith(MICROBIT_NAME_PREFIX)).length;
+  if (!scan.updates || list.length !== scan.total || matching !== scan.matching) {
+    log(`Bluetooth picker: ${list.length} devices, ${matching} with a BBC micro:bit name.`);
+  }
+  scan.updates++;
+  scan.total = list.length;
+  scan.matching = matching;
   if (list.length === 0) {
-    ui.deviceList.replaceChildren(emptyDeviceRow("Searching…"));
+    if (scan.updates === 1) ui.deviceList.replaceChildren(emptyDeviceRow("Searching…"));
     return;
   }
+  if (matching > 0) ui.scanHint.textContent = "Pick the name that matches the letters on your micro:bit.";
   ui.deviceList.replaceChildren(
     ...list.map((d) => {
       const li = document.createElement("li");
       const button = document.createElement("button");
       button.textContent = d.deviceName;
-      button.addEventListener("click", () => window.bridge.selectDevice(d.deviceId));
+      button.addEventListener("click", () => {
+        if (!scan || scan.cancelled || scan.selected) return;
+        scan.selected = true;
+        ui.cancelBtn.disabled = true;
+        window.bridge.selectDevice(d.deviceId);
+      });
       li.append(button);
       return li;
     })

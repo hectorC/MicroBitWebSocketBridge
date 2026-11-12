@@ -26,7 +26,7 @@ function finish(error) {
   clearTimeout(timer);
   try { receiver.close(); } catch { /* Not bound yet. */ }
   if (error) console.error(error.stack);
-  else console.log(`Electron ${label} smoke test passed: UI, IPC, UDP, validation and saved settings.`);
+  else console.log(`Electron ${label} smoke test passed: UI, IPC, UDP, saved settings and simulated Bluetooth picker.`);
   // Keep the isolated profile until Electron has exited; Chromium can still
   // hold files open during shutdown. It is created under the OS temp folder.
   app.exit(error ? 1 : 0);
@@ -46,6 +46,47 @@ async function capture(win, filename) {
   const image = await win.webContents.capturePage(undefined, { stayHidden: true, stayAwake: true });
   assert.equal(image.isEmpty(), false);
   fs.writeFileSync(path.join(artifacts, filename), image.toPNG());
+}
+
+async function checkBluetoothPicker(win) {
+  // Stand in for the radio and native chooser. Use the actual Electron
+  // listener, preload IPC, and renderer to exercise the picker lifecycle.
+  const run = (js) => win.webContents.executeJavaScript(js);
+  await run(`
+    void (navigator.bluetooth.requestDevice = (options) => new Promise((_resolve, reject) => {
+      window.bleTest = { options, reject };
+    }));
+  `);
+  const start = () => run("document.getElementById('connectBtn').click()");
+  const cancel = () => run("document.getElementById('cancelBtn').click()");
+  const closed = () => waitFor(win, "document.getElementById('picker').hidden && !document.getElementById('connectBtn').disabled");
+  const emit = (list) => win.webContents.emit("select-bluetooth-device", { preventDefault() {} }, list, (id) => {
+    assert.equal(id, "");
+    void run("window.bleTest.reject(new DOMException('Chooser closed', 'NotFoundError'))");
+  });
+
+  await start();
+  assert.deepEqual(await run("window.bleTest.options.filters"), [{ namePrefix: "BBC micro:bit" }]);
+  await cancel();
+  await waitFor(win, "document.getElementById('scanHint').textContent.includes('Cancelling')");
+  emit([]);
+  await closed();
+  assert.match(await run("document.getElementById('log').textContent"), /Cancelled/);
+
+  await run("document.getElementById('scanAll').checked = true");
+  await start();
+  assert.equal(await run("window.bleTest.options.acceptAllDevices"), true);
+  assert.equal(await run("window.bleTest.options.filters"), undefined);
+  emit([{ deviceName: "BBC micro:bit [zazeg]", deviceId: "board" }, { deviceName: "Other peripheral", deviceId: "other" }]);
+  await waitFor(win, "document.getElementById('deviceList').textContent.includes('Other peripheral')");
+  assert.match(await run("document.getElementById('log').textContent"), /2 devices, 1 with a BBC micro:bit name/);
+  await cancel();
+  await closed();
+
+  await start();
+  await run("window.bleTest.reject(new DOMException('Adapter is unavailable', 'NotFoundError'))");
+  await closed();
+  assert.match(await run("document.getElementById('banner').textContent"), /Bluetooth scan ended: NotFoundError.*Adapter is unavailable/);
 }
 
 app.on("browser-window-created", (_event, win) => {
@@ -105,6 +146,7 @@ app.on("browser-window-created", (_event, win) => {
       `);
       await waitFor(win, "!document.getElementById('outputMode').disabled && !document.getElementById('websocketPanel').hidden");
       assert.equal(JSON.parse(fs.readFileSync(path.join(userData, "output.json"), "utf8")).mode, "websocket");
+      await checkBluetoothPicker(win);
       finish();
     } catch (err) { finish(err); }
   });

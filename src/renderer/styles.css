@@ -300,6 +300,13 @@ select:focus-visible,
   padding: 24px;
 }
 
+.scan-option {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  font-size: 0.85rem;
+}
+
 .modal {
   background: var(--card);
   border: 1px solid var(--line);

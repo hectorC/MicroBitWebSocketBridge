@@ -244,7 +244,10 @@ public. That's what the five-letter name is for.
 If it reads 0, cables never attached — check the URL. If it reads 1 and the
 Activity log is scrolling, the problem is downstream in the patch.
 
-**macOS: no devices ever appear, no permission prompt.** The Bluetooth usage
-description is missing from the built app. It's set in
-[`electron-builder.yml`](electron-builder.yml); this only bites if that config
-gets changed.
+**macOS: no devices appear.** Check that the bridge is allowed under
+**System Settings → Privacy & Security → Bluetooth**. Quit and reopen the
+bridge after granting access. If the normal scan stays empty, cancel it,
+enable **Show all nearby Bluetooth devices (diagnostic)**, and scan again.
+Select only your own board. The **Activity** log shows whether Electron sent
+any device list updates and how many names matched. If Chrome or another
+computer is connected to the board, disconnect it before scanning.

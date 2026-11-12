@@ -5,6 +5,7 @@ contextBridge.exposeInMainWorld("bridge", {
   onDevices: (cb) => ipcRenderer.on("ble:devices", (_e, list) => cb(list)),
   selectDevice: (deviceId) => ipcRenderer.send("ble:select-device", deviceId),
   cancelScan: () => ipcRenderer.send("ble:cancel-scan"),
+  endScan: () => ipcRenderer.send("ble:scan-ended"),
   onPairingRequired: (cb) => ipcRenderer.on("ble:pairing-required", (_e, msg) => cb(msg)),
 
   // micro:bit -> selected network output

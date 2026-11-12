@@ -22,6 +22,13 @@ let settingsWarning = null;
  * it once the student picks from the list in the renderer.
  */
 let pendingBluetoothCallback = null;
+let cancelBluetoothWhenReady = false;
+
+function finishBluetoothPicker(deviceId) {
+  const callback = pendingBluetoothCallback;
+  pendingBluetoothCallback = null;
+  callback?.(deviceId);
+}
 
 function send(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -55,6 +62,14 @@ function createWindow() {
   mainWindow.webContents.on("select-bluetooth-device", (event, deviceList, callback) => {
     event.preventDefault();
     pendingBluetoothCallback = callback;
+    if (cancelBluetoothWhenReady) {
+      // Calling the chooser back while Electron is emitting this event can
+      // invalidate the native chooser before it has finished emitting.
+      setImmediate(() => {
+        if (cancelBluetoothWhenReady) finishBluetoothPicker("");
+      });
+      return;
+    }
     send(
       "ble:devices",
       deviceList.map((d) => ({
@@ -119,17 +134,17 @@ if (!app.requestSingleInstanceLock()) {
 }
 
 ipcMain.on("ble:select-device", (_event, deviceId) => {
-  if (pendingBluetoothCallback) {
-    pendingBluetoothCallback(deviceId);
-    pendingBluetoothCallback = null;
-  }
+  if (!cancelBluetoothWhenReady) finishBluetoothPicker(deviceId);
 });
 
 ipcMain.on("ble:cancel-scan", () => {
-  if (pendingBluetoothCallback) {
-    pendingBluetoothCallback("");
-    pendingBluetoothCallback = null;
-  }
+  cancelBluetoothWhenReady = true;
+  finishBluetoothPicker("");
+});
+
+ipcMain.on("ble:scan-ended", () => {
+  cancelBluetoothWhenReady = false;
+  pendingBluetoothCallback = null;
 });
 
 ipcMain.on("bridge:data", (_event, payload) => output?.sendFrame(payload));
