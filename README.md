@@ -181,15 +181,13 @@ npm run dist
 push a tag and let CI do it:
 
 ```bash
-git tag v0.3.0 && git push origin v0.3.0
+git tag v0.3.1 && git push origin v0.3.1
 ```
 
 [`.github/workflows/build.yml`](.github/workflows/build.yml) builds on
-`windows-latest` and `macos-latest`, then attaches both installers to a
-**GitHub Release** for that tag. That gives you a permanent download link per
-platform that works without a GitHub account — paste those two URLs into your
-handout. (Build *artifacts* would require students to sign in, find the
-workflow run, and unzip.)
+`windows-latest` and `macos-latest`, then publishes the Windows installer,
+Windows portable app, and macOS DMG to [GitHub Releases](https://github.com/hectorC/MicroBitWebSocketBridge/releases).
+Students can download those files without a GitHub account.
 
 Keep the tag and the `version` in `package.json` in step; electron-builder takes
 the filename from `package.json`, not the tag.
@@ -197,11 +195,12 @@ the filename from `package.json`, not the tag.
 The Windows installer is per-user, so students don't need admin rights. The
 macOS dmg is universal — one download for both Intel and Apple Silicon.
 
-Both builds are **unsigned**. On macOS the first launch is blocked and the
-student has to go to **System Settings → Privacy & Security → Open Anyway**
-once — the old right-click → Open trick no longer works on current macOS. Put
-that in your handout. Windows shows a SmartScreen warning: *More info → Run
-anyway*.
+The Mac app is signed ad hoc and is not notarized. Copy it from the DMG into
+**Applications**. If macOS blocks the first launch, use **System Settings →
+Privacy & Security → Open Anyway**. Allow Bluetooth access when you first click
+**Connect** if prompted, including after upgrading from an older build. The
+Windows builds are unsigned. If SmartScreen appears, choose **More info →
+Run anyway**.
 
 ---
 
@@ -244,7 +243,12 @@ public. That's what the five-letter name is for.
 If it reads 0, cables never attached — check the URL. If it reads 1 and the
 Activity log is scrolling, the problem is downstream in the patch.
 
-**macOS: no devices ever appear, no permission prompt.** The Bluetooth usage
-description is missing from the built app. It's set in
-[`electron-builder.yml`](electron-builder.yml); this only bites if that config
-gets changed.
+**macOS: no devices appear.** Check that the bridge is allowed under
+**System Settings → Privacy & Security → Bluetooth**. Quit and reopen the
+bridge after granting access. If the normal scan stays empty, cancel it,
+enable **Show all nearby Bluetooth devices (diagnostic)**, and scan again.
+Select only your own board. The **Activity** log shows which Bluetooth backend
+is in use, whether it sent device list updates, and how many names matched.
+The macOS package uses Core Bluetooth; Windows uses Electron Web Bluetooth.
+If Chrome or another computer is connected to the board, disconnect it before
+scanning.

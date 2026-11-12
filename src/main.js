@@ -1,6 +1,7 @@
 const { app, BrowserWindow, ipcMain } = require("electron");
 const path = require("node:path");
 const fs = require("node:fs");
+const { MacBLE } = require("./mac-ble.js");
 
 // This window spends its whole life behind the cables patch, which is precisely
 // when Chromium clamps timers in backgrounded, occluded or minimised renderers.
@@ -15,6 +16,19 @@ let output = null;
 let validateOutput = null;
 let settingsPath = null;
 let settingsWarning = null;
+let nativeBLE = null;
+
+const nativeCommands = new Set(["scan", "stop", "connect", "disconnect", "write"]);
+
+function initializeNativeBLE() {
+  if (process.platform !== "darwin") return;
+  const binary = app.isPackaged
+    ? path.join(path.dirname(app.getPath("exe")), "microbit-ble")
+    : path.join(__dirname, "..", "build", "generated", "microbit-ble");
+  // Use Web Bluetooth in a source checkout until the Mac helper is compiled.
+  if (!app.isPackaged && !fs.existsSync(binary)) return;
+  nativeBLE = new MacBLE(binary, (message) => send("ble:native-event", message));
+}
 
 /**
  * Electron hands us a fresh callback every time it discovers another device
@@ -22,6 +36,13 @@ let settingsWarning = null;
  * it once the student picks from the list in the renderer.
  */
 let pendingBluetoothCallback = null;
+let cancelBluetoothWhenReady = false;
+
+function finishBluetoothPicker(deviceId) {
+  const callback = pendingBluetoothCallback;
+  pendingBluetoothCallback = null;
+  callback?.(deviceId);
+}
 
 function send(channel, payload) {
   if (mainWindow && !mainWindow.isDestroyed()) {
@@ -55,6 +76,14 @@ function createWindow() {
   mainWindow.webContents.on("select-bluetooth-device", (event, deviceList, callback) => {
     event.preventDefault();
     pendingBluetoothCallback = callback;
+    if (cancelBluetoothWhenReady) {
+      // Calling the chooser back while Electron is emitting this event can
+      // invalidate the native chooser before it has finished emitting.
+      setImmediate(() => {
+        if (cancelBluetoothWhenReady) finishBluetoothPicker("");
+      });
+      return;
+    }
     send(
       "ble:devices",
       deviceList.map((d) => ({
@@ -108,6 +137,7 @@ if (!app.requestSingleInstanceLock()) {
     output.on("clients", (count) => send("ws:clients", count));
     output.on("osc-status", (status) => send("osc:status", status));
     output.on("tx", (text) => send("ble:tx", text));
+    initializeNativeBLE();
     createWindow();
     output.start();
   });
@@ -115,21 +145,37 @@ if (!app.requestSingleInstanceLock()) {
   // This is a single-purpose tool: closing the window means "stop bridging",
   // including on macOS.
   app.on("window-all-closed", () => app.quit());
-  app.on("before-quit", () => output?.stop());
+  app.on("before-quit", () => {
+    nativeBLE?.stop();
+    output?.stop();
+  });
 }
 
-ipcMain.on("ble:select-device", (_event, deviceId) => {
-  if (pendingBluetoothCallback) {
-    pendingBluetoothCallback(deviceId);
-    pendingBluetoothCallback = null;
+ipcMain.handle("ble:native-available", () => nativeBLE !== null);
+
+ipcMain.handle("ble:native-command", async (_event, op, fields) => {
+  if (!nativeBLE || !nativeCommands.has(op)) {
+    return { ok: false, name: "NotSupportedError", error: "Core Bluetooth is unavailable." };
+  }
+  try {
+    return { ok: true, result: await nativeBLE.request(op, fields) };
+  } catch (err) {
+    return { ok: false, name: err.name, error: err.message };
   }
 });
 
+ipcMain.on("ble:select-device", (_event, deviceId) => {
+  if (!cancelBluetoothWhenReady) finishBluetoothPicker(deviceId);
+});
+
 ipcMain.on("ble:cancel-scan", () => {
-  if (pendingBluetoothCallback) {
-    pendingBluetoothCallback("");
-    pendingBluetoothCallback = null;
-  }
+  cancelBluetoothWhenReady = true;
+  finishBluetoothPicker("");
+});
+
+ipcMain.on("ble:scan-ended", () => {
+  cancelBluetoothWhenReady = false;
+  pendingBluetoothCallback = null;
 });
 
 ipcMain.on("bridge:data", (_event, payload) => output?.sendFrame(payload));

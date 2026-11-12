@@ -40,8 +40,19 @@ jobs:
 
       - run: npm run ${{ matrix.script }}
         env:
-          # Nothing to sign with in a classroom build; skip the attempt.
+          # Don't look for a developer certificate. The Mac config signs ad hoc.
           CSC_IDENTITY_AUTO_DISCOVERY: false
+
+      - name: Check packaged Core Bluetooth helper
+        if: runner.os == 'macOS'
+        run: |
+          app="dist/mac-universal/MicroBit Cables Bridge.app"
+          helper="$app/Contents/MacOS/microbit-ble"
+          test -x "$helper"
+          lipo "$helper" -verify_arch arm64 x86_64
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = gl.cables.microbit.bridge.bluetooth-test
+          codesign --verify --deep --strict "$app"
+          printf '{"id":1,"op":"ping"}\n' | "$helper" | grep -F 'Core Bluetooth'
 
       - uses: actions/upload-artifact@v4
         with:
@@ -71,12 +82,13 @@ jobs:
             and cables patch as described in the
             [README](https://github.com/hectorC/MicroBitWebSocketBridge#readme).
 
-            - **Windows** — the `.exe`. Windows will warn that the publisher is
-              unknown: choose **More info → Run anyway**. No admin rights needed.
+            - **Windows** — choose the Setup `.exe` to install, or the other
+              `.exe` to run the portable app. If SmartScreen appears, choose
+              **More info → Run anyway**. No admin rights needed.
             - **macOS** — the `.dmg` (works on both Intel and Apple Silicon).
-              The first launch is blocked. Open
-              **System Settings → Privacy & Security**, scroll down, and click
-              **Open Anyway**. You only do this once.
+              Copy the app into **Applications**. If macOS blocks the first
+              launch, use **System Settings → Privacy & Security → Open Anyway**.
+              Click **Connect** and allow Bluetooth access if prompted.
 
-            These warnings appear because the app is not code-signed. That is
-            expected here.
+            The Windows builds are unsigned. The macOS build is signed ad hoc
+            and is not notarized.

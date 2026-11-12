@@ -9,27 +9,32 @@ directories:
 files:
   - src/**
   - package.json
+beforePack: build/build-mac-ble.cjs
 
 mac:
   category: public.app-category.education
   # One universal dmg rather than separate Intel/Apple Silicon downloads. Larger,
-  # but removes "which Mac do you have?" from the setup instructions. Viable
-  # only because there are no native modules to build per-architecture.
+  # but removes "which Mac do you have?" from the setup instructions.
   target:
     - target: dmg
       arch: [universal]
-  # Without this key macOS denies Bluetooth silently: no prompt, no error, just
-  # an empty device list.
+  extraFiles:
+    - from: build/generated
+      to: MacOS
+      filter: [microbit-ble]
   extendInfo:
+    # Keep the working Core Bluetooth identity from beta.3. This also separates
+    # its macOS privacy entry from builds that used Electron for Bluetooth.
+    CFBundleIdentifier: gl.cables.microbit.bridge.bluetooth-test
     NSBluetoothAlwaysUsageDescription: >-
       This app connects to your micro:bit over Bluetooth to send its sensor data
       to cables.gl.
     NSBluetoothPeripheralUsageDescription: >-
       This app connects to your micro:bit over Bluetooth to send its sensor data
       to cables.gl.
-  # Unsigned classroom build. Students approve it once in
-  # System Settings -> Privacy & Security -> Open Anyway.
-  identity: null
+  # Ad hoc signing covers the whole bundle and its embedded executable.
+  # The macOS build is not notarized.
+  identity: "-"
   hardenedRuntime: false
 
 win:

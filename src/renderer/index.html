@@ -20,11 +20,15 @@
           <div class="label">Your micro:bit</div>
           <div id="deviceName" class="value value--dim">none selected</div>
         </div>
-        <button id="connectBtn" class="btn btn--primary">Connect</button>
+        <button id="connectBtn" class="btn btn--primary" disabled>Connect</button>
       </div>
       <p class="hint">
         Match the five letters shown on your micro:bit's screen when it starts up.
       </p>
+      <label class="scan-option">
+        <input id="scanAll" type="checkbox" />
+        Show all nearby Bluetooth devices (diagnostic)
+      </label>
     </section>
 
     <section class="card">
@@ -106,10 +110,7 @@
     <div id="picker" class="overlay" hidden>
       <div class="modal">
         <h2>Choose your micro:bit</h2>
-        <p class="hint">
-          Scanning… devices appear as they are found. Pick the name that matches
-          the letters on your micro:bit.
-        </p>
+        <p id="scanHint" class="hint" aria-live="polite"></p>
         <ul id="deviceList" class="device-list">
           <li class="device-list__empty">Searching…</li>
         </ul>
