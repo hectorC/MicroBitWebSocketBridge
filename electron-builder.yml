@@ -18,21 +18,23 @@ mac:
   target:
     - target: dmg
       arch: [universal]
-  extraResources:
+  extraFiles:
     - from: build/generated
+      to: MacOS
       filter: [microbit-ble]
-  # Without this key macOS denies Bluetooth silently: no prompt, no error, just
-  # an empty device list.
   extendInfo:
+    # Test build: keep its privacy grant separate from installed release copies.
+    CFBundleIdentifier: gl.cables.microbit.bridge.bluetooth-test
+    CFBundleDisplayName: MicroBit Cables Bridge Bluetooth Test
     NSBluetoothAlwaysUsageDescription: >-
       This app connects to your micro:bit over Bluetooth to send its sensor data
       to cables.gl.
     NSBluetoothPeripheralUsageDescription: >-
       This app connects to your micro:bit over Bluetooth to send its sensor data
       to cables.gl.
-  # Unsigned classroom build. Students approve it once in
-  # System Settings -> Privacy & Security -> Open Anyway.
-  identity: null
+  # Ad hoc signing covers the whole bundle and its embedded executable.
+  # This test build is not notarized.
+  identity: "-"
   hardenedRuntime: false
 
 win:

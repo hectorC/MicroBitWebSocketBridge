@@ -40,16 +40,18 @@ jobs:
 
       - run: npm run ${{ matrix.script }}
         env:
-          # Nothing to sign with in a classroom build; skip the attempt.
+          # Don't look for a developer certificate. The Mac config signs ad hoc.
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
       - name: Check packaged Core Bluetooth helper
         if: runner.os == 'macOS'
         run: |
-          helper="dist/mac-universal/MicroBit Cables Bridge.app/Contents/Resources/microbit-ble"
+          app="dist/mac-universal/MicroBit Cables Bridge.app"
+          helper="$app/Contents/MacOS/microbit-ble"
           test -x "$helper"
           lipo "$helper" -verify_arch arm64 x86_64
-          codesign --verify "$helper"
+          test "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleIdentifier' "$app/Contents/Info.plist")" = gl.cables.microbit.bridge.bluetooth-test
+          codesign --verify --deep --strict "$app"
           printf '{"id":1,"op":"ping"}\n' | "$helper" | grep -F 'Core Bluetooth'
 
       - uses: actions/upload-artifact@v4
@@ -87,5 +89,5 @@ jobs:
               **System Settings → Privacy & Security**, scroll down, and click
               **Open Anyway**. You only do this once.
 
-            These warnings appear because the app is not code-signed. That is
-            expected here.
+            The Windows builds are unsigned. The macOS build is signed ad hoc
+            and is not notarized.

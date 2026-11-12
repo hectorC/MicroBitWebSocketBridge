@@ -12,6 +12,11 @@ final class MicrobitBLE: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
     private let channels = ["6E400002", "6E400003"].map { CBUUID(string: $0 + "-B5A3-F393-E0A9-E50E24DCCA9E") }
     private var central: CBCentralManager!
     private var scanRequest: Int?
+    private var scanDeadline: DispatchTime = .now()
+    private var stateCheckRequest: Int?
+    private var unauthorizedSince: DispatchTime?
+    private var refreshedAfterGrant = false
+    private var lastStateMessage: String?
     private var showAll = false
     private var found: [UUID: CBPeripheral] = [:]
     private var names: [UUID: String] = [:]
@@ -44,8 +49,13 @@ final class MicrobitBLE: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
             names.removeAll()
             showAll = msg["all"] as? Bool ?? false
             scanRequest = id
-            if central == nil {
-                central = CBCentralManager(delegate: self, queue: .main, options: [CBCentralManagerOptionShowPowerAlertKey: false])
+            scanDeadline = .now() + 60
+            unauthorizedSince = nil
+            refreshedAfterGrant = false
+            lastStateMessage = nil
+            if central == nil || central.state == .unauthorized {
+                recreateManager()
+                checkStateSoon(id)
             } else {
                 updateState()
             }
@@ -103,7 +113,23 @@ final class MicrobitBLE: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
     }
 
     func centralManagerDidUpdateState(_ central: CBCentralManager) {
+        guard central === self.central else { return }
         updateState()
+    }
+
+    private func recreateManager() {
+        central?.delegate = nil
+        central = CBCentralManager(delegate: self, queue: .main, options: [CBCentralManagerOptionShowPowerAlertKey: false])
+    }
+
+    private func checkStateSoon(_ id: Int) {
+        guard stateCheckRequest != id else { return }
+        stateCheckRequest = id
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+            guard let self = self, self.stateCheckRequest == id else { return }
+            self.stateCheckRequest = nil
+            if self.scanRequest == id { self.updateState() }
+        }
     }
 
     private func updateState() {
@@ -116,7 +142,20 @@ final class MicrobitBLE: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
         case .resetting: state = "resetting"
         default: state = "initializing"
         }
-        send(["event": "state", "message": "Core Bluetooth: \(state)."])
+        let authorization = CBManager.authorization
+        let permission: String
+        switch authorization {
+        case .allowedAlways: permission = "allowed"
+        case .denied: permission = "denied"
+        case .restricted: permission = "restricted"
+        case .notDetermined: permission = "waiting for a decision"
+        @unknown default: permission = "unknown"
+        }
+        let message = "Core Bluetooth: adapter \(state); permission \(permission)."
+        if message != lastStateMessage {
+            lastStateMessage = message
+            send(["event": "state", "message": message])
+        }
         if central.state == .poweredOn {
             if let id = scanRequest {
                 scanRequest = nil
@@ -126,9 +165,37 @@ final class MicrobitBLE: NSObject, CBCentralManagerDelegate, CBPeripheralDelegat
             }
             return
         }
-        if central.state == .unknown || central.state == .resetting { return }
+        if let id = scanRequest {
+            let now = DispatchTime.now()
+            if now >= scanDeadline {
+                scanRequest = nil
+                return fail(id, "Core Bluetooth did not become ready within 60 seconds. \(message)", "TimeoutError")
+            }
+            if central.state == .unknown || central.state == .resetting ||
+                (central.state == .unauthorized && authorization == .notDetermined) {
+                checkStateSoon(id)
+                return
+            }
+            if central.state == .unauthorized && authorization == .allowedAlways && !refreshedAfterGrant {
+                refreshedAfterGrant = true
+                unauthorizedSince = nil
+                recreateManager()
+                checkStateSoon(id)
+                return
+            }
+            if central.state == .unauthorized && authorization != .restricted {
+                let first = unauthorizedSince ?? now
+                unauthorizedSince = first
+                if now < first + 3 {
+                    checkStateSoon(id)
+                    return
+                }
+            }
+        } else if central.state == .unknown || central.state == .resetting {
+            return
+        }
         let error = central.state == .unauthorized
-            ? "Allow the bridge in System Settings → Privacy & Security → Bluetooth."
+            ? "macOS did not authorize this copy of the bridge. \(message) Check Privacy & Security → Bluetooth, then quit and reopen the bridge."
             : "The Mac’s Bluetooth adapter is \(state)."
         if let id = scanRequest {
             scanRequest = nil

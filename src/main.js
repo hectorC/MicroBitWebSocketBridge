@@ -23,7 +23,7 @@ const nativeCommands = new Set(["scan", "stop", "connect", "disconnect", "write"
 function initializeNativeBLE() {
   if (process.platform !== "darwin") return;
   const binary = app.isPackaged
-    ? path.join(process.resourcesPath, "microbit-ble")
+    ? path.join(path.dirname(app.getPath("exe")), "microbit-ble")
     : path.join(__dirname, "..", "build", "generated", "microbit-ble");
   // Use Web Bluetooth in a source checkout until the Mac helper is compiled.
   if (!app.isPackaged && !fs.existsSync(binary)) return;
