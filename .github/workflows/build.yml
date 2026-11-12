@@ -43,6 +43,15 @@ jobs:
           # Nothing to sign with in a classroom build; skip the attempt.
           CSC_IDENTITY_AUTO_DISCOVERY: false
 
+      - name: Check packaged Core Bluetooth helper
+        if: runner.os == 'macOS'
+        run: |
+          helper="dist/mac-universal/MicroBit Cables Bridge.app/Contents/Resources/microbit-ble"
+          test -x "$helper"
+          lipo -verify_arch arm64 x86_64 "$helper"
+          codesign --verify "$helper"
+          printf '{"id":1,"op":"ping"}\n' | "$helper" | grep -F 'Core Bluetooth'
+
       - uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact }}

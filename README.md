@@ -248,6 +248,8 @@ Activity log is scrolling, the problem is downstream in the patch.
 **System Settings → Privacy & Security → Bluetooth**. Quit and reopen the
 bridge after granting access. If the normal scan stays empty, cancel it,
 enable **Show all nearby Bluetooth devices (diagnostic)**, and scan again.
-Select only your own board. The **Activity** log shows whether Electron sent
-any device list updates and how many names matched. If Chrome or another
+Select only your own board. The **Activity** log shows which Bluetooth backend
+is in use, whether it sent device list updates, and how many names matched.
+The macOS package uses Core Bluetooth; Windows uses Electron Web Bluetooth.
+If Chrome or another
 computer is connected to the board, disconnect it before scanning.

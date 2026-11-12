@@ -9,15 +9,18 @@ directories:
 files:
   - src/**
   - package.json
+beforePack: build/build-mac-ble.cjs
 
 mac:
   category: public.app-category.education
   # One universal dmg rather than separate Intel/Apple Silicon downloads. Larger,
-  # but removes "which Mac do you have?" from the setup instructions. Viable
-  # only because there are no native modules to build per-architecture.
+  # but removes "which Mac do you have?" from the setup instructions.
   target:
     - target: dmg
       arch: [universal]
+  extraResources:
+    - from: build/generated
+      filter: [microbit-ble]
   # Without this key macOS denies Bluetooth silently: no prompt, no error, just
   # an empty device list.
   extendInfo:

@@ -1,0 +1,12 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>CFBundleIdentifier</key>
+  <string>gl.cables.microbit.bridge.ble</string>
+  <key>CFBundleName</key>
+  <string>MicroBit Cables Bridge Bluetooth</string>
+  <key>NSBluetoothAlwaysUsageDescription</key>
+  <string>Connect to your micro:bit to bridge its sensor data to cables.gl or TouchDesigner.</string>
+</dict>
+</plist>

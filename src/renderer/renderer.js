@@ -78,6 +78,7 @@ let shouldReconnect = false;
 let reconnectDelay = 1000;
 let connecting = false;
 let scan = null;
+let nativeBLE = false;
 
 let rxBuffer = "";
 let partialTimer = null;
@@ -85,6 +86,7 @@ let framesThisWindow = 0;
 
 const writeQueue = [];
 let writeTimer = null;
+let writing = false;
 
 /* ---------------------------------------------------------------- logging */
 
@@ -136,8 +138,8 @@ function emitFrame(raw) {
   );
 }
 
-function handleNotification(event) {
-  rxBuffer += new TextDecoder().decode(event.target.value);
+function receiveBytes(bytes) {
+  rxBuffer += new TextDecoder().decode(bytes);
 
   let newline;
   while ((newline = rxBuffer.indexOf("\n")) !== -1) {
@@ -154,6 +156,16 @@ function handleNotification(event) {
       rxBuffer = "";
     }, PARTIAL_FLUSH_MS);
   }
+}
+
+function handleNotification(event) {
+  receiveBytes(event.target.value);
+}
+
+async function nativeCommand(op, fields) {
+  const reply = await window.bridge.nativeBLECommand(op, fields);
+  if (!reply.ok) throw new DOMException(reply.error, reply.name);
+  return reply.result;
 }
 
 /* ---------------------------------------------------------- send over BLE */
@@ -190,26 +202,44 @@ function applyWriteRate(perSecond, persist = true) {
 }
 
 async function flushWrites() {
-  if (!charWrite || writeQueue.length === 0) return;
+  if (writing || !charWrite || writeQueue.length === 0) return;
 
+  const target = charWrite;
   const bytes = new TextEncoder().encode(writeQueue.shift());
+  writing = true;
   try {
     for (let offset = 0; offset < bytes.length; offset += MAX_WRITE_BYTES) {
+      if (charWrite !== target) break;
       const chunk = bytes.slice(offset, offset + MAX_WRITE_BYTES);
-      if (charWrite.writeValueWithoutResponse) {
-        await charWrite.writeValueWithoutResponse(chunk);
+      if (target.writeValueWithoutResponse) {
+        await target.writeValueWithoutResponse(chunk);
       } else {
-        await charWrite.writeValue(chunk);
+        await target.writeValue(chunk);
       }
     }
   } catch (err) {
     log(`Write failed: ${err.message}`, "err");
+  } finally {
+    writing = false;
   }
 }
 
 /* ------------------------------------------------------------- connection */
 
 async function attachGatt() {
+  if (device.nativeId) {
+    const target = device;
+    const info = await nativeCommand("connect", { deviceId: target.nativeId });
+    if (device !== target || !shouldReconnect) return;
+    target.connected = true;
+    charWrite = info.canWrite ? {
+      writeValue: (bytes) => nativeCommand("write", { data: btoa(String.fromCharCode(...bytes)) })
+    } : null;
+    log(info.canWrite ? "Core Bluetooth UART notifications and writes are ready."
+      : "Core Bluetooth UART notifications are ready; no write channel.");
+    markConnected();
+    return;
+  }
   const server = await device.gatt.connect();
   const service = await server.getPrimaryService(UART_SERVICE);
 
@@ -248,9 +278,12 @@ async function attachGatt() {
       (charWrite ? `, data out: …${charWrite.uuid.slice(4, 8)}` : ", no write channel")
   );
 
+  markConnected();
+}
+
+function markConnected() {
   clearInterval(writeTimer);
   writeTimer = setInterval(flushWrites, writeIntervalMs);
-
   reconnectDelay = 1000;
   const name = device.name || "Unnamed Bluetooth device";
   setStatus(`Connected · ${name}`, "ok");
@@ -272,11 +305,13 @@ function onDisconnected() {
   setStatus("Reconnecting…", "busy");
   log(`Lost ${device.name}, retrying in ${reconnectDelay / 1000}s`, "err");
 
+  const target = device;
   setTimeout(async () => {
-    if (!shouldReconnect) return;
+    if (!shouldReconnect || device !== target) return;
     try {
       await attachGatt();
     } catch (err) {
+      if (!shouldReconnect || device !== target) return;
       reconnectDelay = Math.min(reconnectDelay * 2, 8000);
       onDisconnected();
     }
@@ -297,12 +332,12 @@ async function connect() {
 
   const attempt = { all: ui.scanAll.checked, updates: 0, total: 0, matching: 0, cancelled: false, selected: false };
   scan = attempt;
-  log(attempt.all ? "Bluetooth scan: all nearby devices." : "Bluetooth scan: BBC micro:bit names only.");
+  log(`Bluetooth scan (${nativeBLE ? "Core Bluetooth" : "Electron"}): ${attempt.all ? "all nearby devices" : "BBC micro:bit names only"}.`);
   const feedbackTimer = setTimeout(() => {
     if (attempt.cancelled || attempt.selected || attempt.matching > 0) return;
-    const message = !attempt.updates ? "Electron has not sent any device list updates."
+    const message = !attempt.updates ? "The Bluetooth scanner has not sent any device list updates."
       : attempt.total ? "Other Bluetooth devices found, but no BBC micro:bit name yet."
-      : "Electron reported an empty Bluetooth device list.";
+      : "The Bluetooth scanner reported an empty device list.";
     log(`After 15 seconds: ${message}`, "err");
     ui.scanHint.textContent = attempt.all ? message
       : `${message} Cancel and turn on “Show all nearby Bluetooth devices” to compare.`;
@@ -313,12 +348,16 @@ async function connect() {
   function endPicker() {
     clearTimeout(feedbackTimer);
     scan = null;
-    window.bridge.endScan();
+    if (!nativeBLE) window.bridge.endScan();
     ui.picker.hidden = true;
   }
 
   try {
-    device = await navigator.bluetooth.requestDevice({
+    device = nativeBLE ? await new Promise((resolve, reject) => {
+      attempt.resolve = resolve;
+      attempt.reject = reject;
+      nativeCommand("scan", { all: attempt.all }).catch(reject);
+    }) : await navigator.bluetooth.requestDevice({
       ...(attempt.all ? { acceptAllDevices: true } : { filters: [{ namePrefix: MICROBIT_NAME_PREFIX }] }),
       // Without this the service stays invisible even after connecting.
       optionalServices: [UART_SERVICE]
@@ -330,13 +369,15 @@ async function connect() {
     ui.deviceName.className = "value";
     setStatus("Connecting…", "busy");
 
-    device.addEventListener("gattserverdisconnected", onDisconnected);
+    if (!device.nativeId) device.addEventListener("gattserverdisconnected", onDisconnected);
     shouldReconnect = true;
     await attachGatt();
   } catch (err) {
     if (inPicker) endPicker();
     shouldReconnect = false;
-    if (device) {
+    if (device?.nativeId) {
+      nativeCommand("disconnect").catch(() => {});
+    } else if (device) {
       device.removeEventListener("gattserverdisconnected", onDisconnected);
       if (device.gatt.connected) device.gatt.disconnect();
     }
@@ -374,7 +415,14 @@ function disconnect() {
   shouldReconnect = false;
   clearInterval(writeTimer);
   writeTimer = null;
-  if (device && device.gatt.connected) device.gatt.disconnect();
+  if (device?.nativeId) {
+    device.connected = false;
+    nativeCommand("disconnect").catch((error) => log(error.message, "err"));
+  } else if (device) {
+    device.removeEventListener("gattserverdisconnected", onDisconnected);
+    if (device.gatt.connected) device.gatt.disconnect();
+  }
+  device = null;
   charWrite = null;
   setStatus("Not connected", "idle");
   ui.connectBtn.textContent = "Connect";
@@ -402,7 +450,10 @@ ui.cancelBtn.addEventListener("click", () => {
   ui.cancelBtn.disabled = true;
   ui.scanHint.textContent = "Cancelling Bluetooth scan…";
   ui.deviceList.replaceChildren();
-  window.bridge.cancelScan();
+  if (nativeBLE) {
+    nativeCommand("stop").catch(() => {});
+    scan.reject(new DOMException("Scan cancelled.", "AbortError"));
+  } else window.bridge.cancelScan();
 });
 
 ui.retryBtn.addEventListener("click", () => window.bridge.retryServer());
@@ -412,7 +463,7 @@ ui.writeRate.addEventListener("change", () => {
   log(`Write cap set to ${applied}/s`);
 });
 
-window.bridge.onDevices((list) => {
+function showDevices(list) {
   if (!scan || scan.cancelled || scan.selected) return;
   const matching = list.filter((entry) => entry.deviceName.startsWith(MICROBIT_NAME_PREFIX)).length;
   if (!scan.updates || list.length !== scan.total || matching !== scan.matching) {
@@ -435,12 +486,46 @@ window.bridge.onDevices((list) => {
         if (!scan || scan.cancelled || scan.selected) return;
         scan.selected = true;
         ui.cancelBtn.disabled = true;
-        window.bridge.selectDevice(d.deviceId);
+        if (nativeBLE) scan.resolve({ name: d.deviceName, nativeId: d.deviceId, connected: false });
+        else window.bridge.selectDevice(d.deviceId);
       });
       li.append(button);
       return li;
     })
   );
+}
+
+window.bridge.onDevices((list) => { if (!nativeBLE) showDevices(list); });
+window.bridge.onNativeBLE((message) => {
+  switch (message.event) {
+    case "devices": showDevices(message.devices); break;
+    case "state": log(message.message); break;
+    case "unavailable":
+    case "helper-exited":
+      if (scan) scan.reject(new DOMException(message.message, "NetworkError"));
+      if (message.event === "helper-exited" && device?.nativeId && !connecting) {
+        // A new helper has no record of the selected device. Start with a
+        // fresh scan instead of retrying an unknown identifier indefinitely.
+        disconnect();
+        log(message.message, "err");
+        showBanner(message.message);
+      }
+      break;
+    case "disconnected":
+      if (device?.connected) {
+        device.connected = false;
+        log(message.message, "err");
+        onDisconnected();
+      }
+      break;
+    case "data":
+      if (device?.connected) receiveBytes(Uint8Array.from(atob(message.data), (char) => char.charCodeAt(0)));
+      break;
+  }
+});
+window.bridge.nativeBLEAvailable().then((available) => {
+  nativeBLE = available;
+  ui.connectBtn.disabled = false;
 });
 
 window.bridge.onTx((text) => queueWrite(text));

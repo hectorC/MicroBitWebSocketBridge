@@ -7,6 +7,9 @@ contextBridge.exposeInMainWorld("bridge", {
   cancelScan: () => ipcRenderer.send("ble:cancel-scan"),
   endScan: () => ipcRenderer.send("ble:scan-ended"),
   onPairingRequired: (cb) => ipcRenderer.on("ble:pairing-required", (_e, msg) => cb(msg)),
+  nativeBLEAvailable: () => ipcRenderer.invoke("ble:native-available"),
+  nativeBLECommand: (op, fields) => ipcRenderer.invoke("ble:native-command", op, fields),
+  onNativeBLE: (cb) => ipcRenderer.on("ble:native-event", (_e, msg) => cb(msg)),
 
   // micro:bit -> selected network output
   sendData: (payload) => ipcRenderer.send("bridge:data", payload),
