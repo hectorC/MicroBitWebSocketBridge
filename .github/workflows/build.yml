@@ -48,7 +48,7 @@ jobs:
         run: |
           helper="dist/mac-universal/MicroBit Cables Bridge.app/Contents/Resources/microbit-ble"
           test -x "$helper"
-          lipo -verify_arch arm64 x86_64 "$helper"
+          lipo "$helper" -verify_arch arm64 x86_64
           codesign --verify "$helper"
           printf '{"id":1,"op":"ping"}\n' | "$helper" | grep -F 'Core Bluetooth'
 

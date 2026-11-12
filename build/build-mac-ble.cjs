@@ -22,7 +22,7 @@ module.exports = function buildMacBLE(context) {
     });
     fs.mkdirSync(generated, { recursive: true });
     xcrun("lipo", "-create", ...slices, "-output", binary);
-    xcrun("lipo", "-verify_arch", "arm64", "x86_64", binary);
+    xcrun("lipo", binary, "-verify_arch", "arm64", "x86_64");
     execFileSync("codesign", ["--force", "--sign", "-", "--identifier", "gl.cables.microbit.bridge.ble", binary], { stdio: "inherit" });
     const result = execFileSync(binary, [], { input: '{"id":1,"op":"ping"}\n', encoding: "utf8", timeout: 5000 });
     if (JSON.parse(result).result?.backend !== "Core Bluetooth") throw new Error("Bluetooth helper did not respond to its build check.");
